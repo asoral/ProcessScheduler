@@ -26,6 +26,7 @@ from processscheduler.util import (
     is_list_of_positive_integers,
 )
 from processscheduler.resource import Resource, Worker, CumulativeWorker, SelectWorkers
+from processscheduler.task_constraint import TaskPrecedence
 import processscheduler.context as ps_context
 
 
@@ -309,3 +310,64 @@ class VariableDurationTask(Task):
             assertions.append(self.duration >= min_duration)
 
         self.set_assertions(assertions)
+
+
+class BreakableFixedDurationTask:
+    """Task with constant duration, that can be split over n time slots. It is actually
+    a group of unitary tasks.
+
+    Args:
+        name: the task name. It must be unique
+        duration: the task duration as a number of periods
+        work_amount: represent the quantity of work this task must produce
+        priority: the task priority. The greater the priority, the sooner it will be scheduled
+        optional: True if task schedule is optional, False otherwise (default)
+    """
+
+    def __init__(
+        self,
+        name: str,
+        duration: int,
+        work_amount: Optional[int] = 0,
+        priority: Optional[int] = 1,
+        optional: Optional[bool] = False,
+    ) -> None:
+        self.optional = optional
+        if not is_strict_positive_integer(duration):
+            raise TypeError("duration must be a strict positive integer")
+
+        if not is_positive_integer(work_amount):
+            raise TypeError("work_amount me be a positive integer")
+
+        if not is_positive_integer(work_amount):
+            raise TypeError("work_amount me be a positive integer")
+
+        # create unitary subtasks
+        self.subtasks = [
+            FixedDurationTask(f"{name}|{i+1}/{duration}", duration=1)
+            for i in range(duration)
+        ]
+
+        # create precedences
+        for i in range(len(self.subtasks) - 1):
+            TaskPrecedence(self.subtasks[i], self.subtasks[i + 1])
+
+    def add_required_resource(self, resource):
+        for t in self.subtasks:
+            t.add_required_resource(resource)
+
+    def add_required_resources(
+        self, list_of_resources: List[Resource], dynamic=False
+    ) -> None:
+        for t in self.subtasks:
+            t.add_required_resources(list_of_resources)
+
+    @property
+    def start(self):
+        """return the start of the first unitary task"""
+        return self.subtasks[0].start
+
+    @property
+    def end(self):
+        """returns the end of the last unitary task"""
+        return self.subtasks[-1].end
